@@ -1,0 +1,132 @@
+---
+title: "Practical Machine Learning Week 4 Assignment"
+author: "Moksh Goyal"
+date: "September 24, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Background of the Project
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+## Loading the Data sets.
+```{r}
+train <- read.csv("C:/Users/Sony/Documents/pml-training.csv")
+test <- read.csv("C:/Users/Sony/Documents/pml-testing.csv")
+dim(train)
+dim(test)
+```
+From here we could see that there are `r nrow(train)` rows in training set and `r ncol(train)` columns in training set.
+Also there are `r nrow(test)` in testing set and `r ncol(test)` columns in testing set.
+
+## Loading the libraries which will be used in the Program
+```{r}
+library(caret)
+library(caTools)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(rattle)
+library(dplyr)
+```
+
+## Removing irrelevant variables which are not going to have any impact on the category. Also removing classe variable and problem id from the train and test set to combine the data sets later for cleaning
+```{r}
+train1 <- select(train,select = -c(classe,X,user_name , raw_timestamp_part_1 , raw_timestamp_part_2 , cvtd_timestamp , new_window,num_window))
+test1 <- select(test,select = -c(problem_id , X , user_name , raw_timestamp_part_1 , raw_timestamp_part_2 , cvtd_timestamp , new_window,num_window))
+```
+
+## Combining the train and test set and then removing the variables which have even a single NA value.
+```{r}
+comb <- rbind(train1,test1)
+comb <- comb[,colSums(is.na(comb)) == 0]
+```
+Number of columns left after removing the irrelevant and NA variable is `r ncol(comb)` .
+
+## Checking for variables with low variance. These variables will have least impact on deciding the category.
+```{r}
+lowvar <- nearZeroVar(comb,saveMetrics = TRUE)
+comb <- comb[,lowvar[,'nzv']== 0]
+```
+
+From checking the dimensions of comb after conducting the variance exercise we came to know that no variable was removed due to low variance attribute.
+
+## Finding variables which are highly correlated. We would like to remove the variables which are highly correlated.
+```{r}
+tmp <- cor(comb)
+tmp[upper.tri(tmp)] <- 0
+diag(tmp) <- 0
+comb <- comb[,!apply(tmp,2,function(x) any(x > 0.9))]
+```
+Here, we have decided to keep the threshold value of 0.9 to remove the highly correlated variables.
+After removing the highly correlated variables we are left with `r ncol(comb)` columns
+
+## Separating the combined data set into training and testing set
+```{r}
+train1 <- comb[1:19622,]
+test1 <- comb[19623:19642,]
+```
+
+## Adding the removed variables from training and testing set
+```{r}
+train1$classe <- train$classe
+id <- 1:20
+test1$id <- id
+```
+
+
+## Dividing the training set for training and cross validation
+```{r}
+set.seed(33)
+spl <- sample.split(train1,SplitRatio = 0.7)
+train2 <- subset(train1,spl == TRUE)
+cv <- subset(train1,spl == FALSE)
+```
+Here we have split the training data set into training set and cross validation set in the ratio of 70% - 30%.
+
+## Building a Regression Tree on the training set
+```{r}
+set.seed(23)
+model1 <- rpart(classe~.,data = train2,method = "class",minbucket = 50)
+pred <- predict(model1,newdata = cv,type = "class")
+```
+
+## Building a fancy tree
+```{r}
+fancyRpartPlot(model1)
+```
+
+## Making the predictions on the cross validation set
+```{r}
+table1 <- table(cv$classe,pred)
+table1
+```
+From here we could see that the accuracy of the regression tree is `r sum(diag(table1))/nrow(cv)` which is pretty less. So we will build a random Forest to improve our accuracy.
+
+## Building a Random Forest
+```{r}
+set.seed(23)
+model2 <- randomForest(classe~.,data = train2,nodesize = 25,ntree = 200)
+pred2 <- predict(model2,newdata = cv)
+```
+
+## To check the variable importance in Random Forest
+```{r}
+varImpPlot(model2)
+```
+
+## Making the predictions on the cross validation set
+```{r}
+table2 <- table(cv$classe,pred2)
+table2
+```
+
+From here we could see that the accuracy of the Random Forest is `r sum(diag(table2))/nrow(cv)` which is pretty awesome.
+
+## Making final predictions for the testing set.
+```{r}
+pred3 <- predict(model2,newdata = test1)
+pred3
+```
